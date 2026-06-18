@@ -58,7 +58,7 @@ ollama pull nomic-embed-text
 
 ```bash
 # 1. Clone
-git clone https://github.com/YOUR_USERNAME/lattice.git
+git clone https://github.com/chaitanya-shriram/lattice.git
 cd lattice
 
 # 2. Python dependencies
