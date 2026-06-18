@@ -85,6 +85,124 @@ On Windows, double-click `start_lattice.bat` instead of steps 5.
 
 ---
 
+## First Run
+
+After `python main.py` and browser opens at `http://localhost:8080`:
+
+1. Go to **Settings** — verify Ollama shows "connected"
+2. Edit `vault/_context/lattice-context.md` — add your name, domains, active projects (this file is injected into every LLM prompt)
+3. Drop a file or type something in Brain Dump to ingest first content
+
+---
+
+## Usage Guide
+
+### Brain Dump
+
+Type anything — tasks, ideas, questions, links, random thoughts. Press **Ctrl+Enter** or click **Process**.
+
+LLM parses and routes automatically:
+- Tasks → Tasks page (assigned to a bucket: daily/weekly/long-term/someday)
+- Questions → logged as open questions in vault
+- Ideas → stored in vault as idea notes
+
+No structure needed. Write like you think.
+
+### Ask
+
+Type a natural language question. Lattice runs graph-expanded RAG:
+
+1. Embeds query → semantic search over wiki pages
+2. Expands results via concept graph (pulls in linked pages)
+3. LLM synthesizes answer, cites sources as `[[page-name]]`
+
+Answer quality depends on how much is in your vault. Ingest more files = better answers.
+
+### Wiki
+
+Auto-compiled from ingested files. Never write wiki pages manually.
+
+**How to populate:**
+1. Drop PDF/EPUB/DOCX/TXT into `incoming/` folder — or use the **Drop Files** zone on Dashboard
+2. Lattice detects file, extracts text + metadata
+3. LLM compiles structured wiki pages into `vault/00-wiki/`
+4. Pages cross-link with `[[concept]]` notation
+5. Appears in Wiki tab with full-text search
+
+### Tasks
+
+Four buckets:
+| Bucket | Meaning |
+|---|---|
+| **Daily** | Do today |
+| **Weekly** | Do this week |
+| **Long-term** | Ongoing projects |
+| **Someday** | Backlog / maybe |
+
+Populated from Brain Dumps automatically. Priority levels: `urgent` / `high` / `normal` / `low`. Click to complete, drag to reprioritize.
+
+### Graph
+
+D3 force-directed concept map. Nodes = wiki pages. Edges = `[[concept]]` links between pages.
+
+- Click node → opens wiki page
+- Zoom and pan to explore clusters
+- Tightly connected clusters = dense knowledge areas
+- Isolated nodes = orphaned notes (Vault Health will flag these)
+
+### Journal
+
+Daily entries stored in `vault/01-daily/YYYY-MM-DD.md`. Write manually or click **AI Reflect** to generate a reflection from today's Brain Dumps and completed tasks.
+
+### People (CRM)
+
+Lightweight contact notes for researchers, professors, collaborators. Each person gets a markdown file in `vault/07-people/`. Fields: name, role, relationship, tags, notes. No sync to any external service.
+
+### XP
+
+Earn XP for:
+- Completing tasks
+- Brain dumps
+- Journal entries
+- File ingestion
+- Daily streaks
+
+View current level, XP to next level, streak, and achievements on the XP page.
+
+### Daily Review
+
+Auto-generated at `DAILY_REVIEW_TIME` (default `21:00`). Contains:
+- Tasks completed today
+- Tasks that slipped (pending + overdue)
+- Suggested priorities for tomorrow
+
+Also available on-demand from Dashboard. Stored in vault as a daily note.
+
+### Vault Health
+
+Runs at `NIGHTLY_MAINTENANCE_TIME` (default `23:00`). Scans for:
+- **Broken links** — `[[references]]` pointing to non-existent pages
+- **Orphaned notes** — pages with no inbound or outbound links
+- **Knowledge gaps** — topics referenced but never compiled
+- **Contradictions** — LLM flags conflicting statements across pages
+
+View reports in the Vault Health section. Fix broken links by creating the missing pages or correcting the reference.
+
+### Files
+
+Upload via Dashboard drop zone or directly into `incoming/`. Supported: PDF, EPUB, DOCX, TXT, MD.
+
+Pipeline:
+1. File saved to `vault-files/`
+2. Watcher detects `incoming/` drop
+3. Metadata extracted (title, author, type)
+4. Wiki pages compiled from content
+5. Original moved to `vault/00-raw/processed/`
+
+Track ingestion status on the Files page.
+
+---
+
 ## Configuration
 
 All settings live in `lattice/.env`. Copy from `lattice/.env.example` to get started.
