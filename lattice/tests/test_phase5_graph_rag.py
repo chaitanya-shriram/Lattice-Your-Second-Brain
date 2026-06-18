@@ -1,0 +1,140 @@
+"""
+Phase 5 tests: Graph Builder + RAG Engine.
+"""
+import pytest
+import sys
+import os
+import asyncio
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+
+def test_graph_builder_vault_links():
+    from engines.graph_builder import GraphBuilder
+    builder = GraphBuilder()
+    result = builder.build_vault_links()
+    assert "links_created" in result
+    assert isinstance(result["links_created"], int)
+    print(f"  Vault links: {result['links_created']}")
+
+
+def test_graph_builder_concept_edges():
+    from engines.graph_builder import GraphBuilder
+    builder = GraphBuilder()
+    result = builder.build_wiki_concept_edges()
+    assert "edges_created" in result
+    assert isinstance(result["edges_created"], int)
+    print(f"  Concept edges: {result['edges_created']}")
+
+
+def test_graph_builder_all():
+    from engines.graph_builder import GraphBuilder
+    builder = GraphBuilder()
+    result = builder.build_all()
+    assert "links_created" in result
+    assert "edges_created" in result
+    assert "graph_edges" in result
+    print(f"  Full graph: {result}")
+
+
+def test_graph_get_data():
+    from engines.graph_builder import GraphBuilder
+    builder = GraphBuilder()
+    data = builder.get_graph_data()
+    assert "nodes" in data
+    assert "edges" in data
+    assert isinstance(data["nodes"], list)
+    assert isinstance(data["edges"], list)
+    # Should have 2 wiki pages from Phase 3
+    print(f"  Graph nodes: {len(data['nodes'])}, edges: {len(data['edges'])}")
+
+
+def test_graph_neighbors():
+    from engines.graph_builder import GraphBuilder
+    builder = GraphBuilder()
+    result = builder.get_neighbors("Entropy", hops=2)
+    assert "center" in result
+    assert "neighbors" in result
+    assert isinstance(result["neighbors"], list)
+    print(f"  Entropy neighbors: {result['neighbors']}")
+
+
+def test_rag_engine_imports():
+    from engines.rag_engine import RAGEngine
+    engine = RAGEngine()
+    assert engine is not None
+
+
+def test_rag_query_mock():
+    """RAG query with mock LLM (no Ollama needed)."""
+    import asyncio
+    from engines.rag_engine import RAGEngine
+
+    class MockLLM:
+        async def embed(self, text):
+            return [0.1] * 768
+        async def complete(self, prompt, system="", schema=None, model=None):
+            return "This is a synthesized answer about entropy from the vault context."
+        async def complete_json(self, prompt, system="", model=None, retries=2):
+            return {}
+
+    engine = RAGEngine()
+    engine.llm = MockLLM()
+
+    result = asyncio.run(engine.query("What is entropy?", top_k=3))
+    assert "question" in result
+    assert "answer" in result
+    assert "sources_used" in result
+    assert result["question"] == "What is entropy?"
+    assert len(result["answer"]) > 0
+    print(f"  RAG answer: {result['answer'][:80]}...")
+
+
+def test_graph_api_import():
+    from api.graph import router
+    assert router is not None
+
+
+def test_graph_rebuild_endpoint():
+    from fastapi.testclient import TestClient
+    from main import app
+    client = TestClient(app)
+    r = client.post("/api/graph/rebuild")
+    assert r.status_code == 200
+    data = r.json()
+    assert "links_created" in data
+
+
+def test_graph_data_endpoint():
+    from fastapi.testclient import TestClient
+    from main import app
+    client = TestClient(app)
+    r = client.get("/api/graph/")
+    assert r.status_code == 200
+    data = r.json()
+    assert "nodes" in data
+    assert "edges" in data
+
+
+def test_rag_query_endpoint():
+    from fastapi.testclient import TestClient
+    from main import app
+    from engines.rag_engine import get_rag_engine
+
+    class MockLLM:
+        async def embed(self, text):
+            return [0.1] * 768
+        async def complete(self, prompt, system="", schema=None, model=None):
+            return "Answer synthesized from vault."
+        async def complete_json(self, prompt, system="", model=None, retries=2):
+            return {}
+
+    engine = get_rag_engine()
+    engine.llm = MockLLM()
+
+    client = TestClient(app)
+    r = client.post("/api/graph/query", json={"question": "What is entropy?", "top_k": 3})
+    assert r.status_code == 200
+    data = r.json()
+    assert "answer" in data
+    assert "wiki_pages_used" in data
+    print(f"  API RAG answer: {data['answer'][:60]}...")

@@ -1,0 +1,34 @@
+﻿# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Local config (has your paths)
+lattice/.env
+
+# Data (personal)
+vault/
+vault-files/
+incoming/
+logs/
+
+# Database
+lattice/data/*.db
+lattice/data/*.db-shm
+lattice/data/*.db-wal
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

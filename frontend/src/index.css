@@ -1,0 +1,46 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-dark-border;
+  }
+
+  html {
+    @apply bg-dark-bg text-dark-text;
+    font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  }
+
+  body {
+    @apply bg-dark-bg min-h-screen;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-1.5;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-dark-bg;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-dark-muted rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-dark-subtle;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-dark-card/60 backdrop-blur-sm border border-dark-border/50;
+  }
+
+  .glow-lattice {
+    box-shadow: 0 0 20px rgba(92, 124, 250, 0.15);
+  }
+
+  .text-gradient {
+    @apply bg-gradient-to-r from-lattice-400 to-lattice-600 bg-clip-text text-transparent;
+  }
+}
