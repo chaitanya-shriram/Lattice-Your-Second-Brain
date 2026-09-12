@@ -14,10 +14,11 @@ Built for students and researchers who want a personal knowledge base that think
 | **Ask** | Query your vault with natural language. Graph-expanded RAG with cited sources. |
 | **Wiki** | Upload PDFs/docs → LLM compiles wiki pages with cross-links and `[[concept]]` citations. |
 | **Tasks** | Extracted from brain dumps. Daily/weekly/long-term/someday buckets with priority. |
+| **Projects** | Asana-style project manager: sections, kanban, milestones, dependencies, status updates, chat control-center. |
+| **Intent Planning** | Say "I'm going to build X" in a Brain Dump — a scheduled job drafts a plan with Ollama and turns it into a Project + vault note automatically. |
 | **Graph** | D3 force-directed concept map showing relationships between wiki pages. |
 | **Journal** | Daily entries with optional AI reflection. |
 | **People (CRM)** | Lightweight contact notes for researchers, professors, collaborators. |
-| **XP** | Gamification: XP, levels, streaks, achievements. |
 | **Daily Review** | Auto-generated at a set time: what you did, what slipped, tomorrow's priorities. |
 | **Vault Health** | Finds broken links, orphaned notes, contradictions, knowledge gaps. |
 | **Git auto-commit** | Vault changes committed every hour, full history preserved. |
@@ -141,6 +142,20 @@ Four buckets:
 
 Populated from Brain Dumps automatically. Priority levels: `urgent` / `high` / `normal` / `low`. Click to complete, drag to reprioritize.
 
+### Projects
+
+Asana-style multi-project manager, separate from the brain-dump Tasks buckets above — for planned work with structure (sections, milestones, dependencies) rather than quick-capture.
+
+- **Home** — kanban with one column per project (progress bar, latest status, pending tasks) or a flat list of all pending tasks
+- **Per-project** — List (grouped by section), Kanban (drag-free — move tasks via the task panel's section dropdown), and Status (update log: on track / at risk / off track / complete)
+- **Task detail panel** — due date, priority, effort, tags, milestone flag, notes, dependencies ("blocked by"), subtasks
+- **Personal** — built-in inbox project for standalone tasks, cannot be deleted
+- **Chat control-center** — floating ✦ button, walks pending work, creates/edits projects and tasks via conversation, routed through Lattice's own LLM router (`llm/router.py`). Deletions only apply when the item's exact name appears in your own message (project deletion additionally requires the word "project"), so a confused model can't nuke the wrong thing.
+
+### Intent Planning
+
+Brain Dump detects stated commitments — not one-off tasks, but things like "I'm going to build a trading bot" — and queues them as pending intents. Every `INTENT_PLANNING_INTERVAL_MINUTES` (default 30), a scheduled job sweeps pending intents and, for each: asks Ollama to draft a plan (description, phases, 5-15 concrete tasks), creates a matching Project with sections/tasks, and writes a plan note to `vault/08-projects/`. Auto-planned items show up on the Dashboard under "Auto-planned," linking straight to the generated Project. Trigger it manually with `POST /api/intents/run-now` instead of waiting for the schedule.
+
 ### Graph
 
 D3 force-directed concept map. Nodes = wiki pages. Edges = `[[concept]]` links between pages.
@@ -157,17 +172,6 @@ Daily entries stored in `vault/01-daily/YYYY-MM-DD.md`. Write manually or click 
 ### People (CRM)
 
 Lightweight contact notes for researchers, professors, collaborators. Each person gets a markdown file in `vault/07-people/`. Fields: name, role, relationship, tags, notes. No sync to any external service.
-
-### XP
-
-Earn XP for:
-- Completing tasks
-- Brain dumps
-- Journal entries
-- File ingestion
-- Daily streaks
-
-View current level, XP to next level, streak, and achievements on the XP page.
 
 ### Daily Review
 
@@ -250,8 +254,7 @@ DEBUG=true
 ```env
 GIT_VERSIONING_ENABLED=true    # hourly auto-commit of vault changes
 WIKI_COMPILATION_ENABLED=true  # auto-compile wiki pages from ingested files
-SELF_IMPROVE_ENABLED=true      # self-improvement suggestions
-VOICE_ENABLED=false            # voice input (experimental)
+SELF_IMPROVE_ENABLED=true      # nightly vault health check (broken links, orphans, gaps)
 ```
 
 ---
@@ -293,11 +296,21 @@ GET  /api/wiki/               list wiki pages
 GET  /api/wiki/{page}         get wiki page content
 GET  /api/graph/              graph data for D3 visualization
 POST /api/files/upload        upload a file for ingestion
-GET  /api/xp/stats            XP / level / streak stats
 POST /api/journal/            add journal entry
 GET  /api/journal/            list journal entries
 GET  /api/vault-health/reports  vault health reports
 GET  /api/health/             system health check
+GET  /api/projects/           list projects
+GET  /api/projects/home       home board (per-project progress, latest status)
+GET  /api/projects/my-tasks   all pending tasks across projects
+POST /api/projects/           create project
+GET  /api/projects/{id}/full  project with sections, tasks, dependencies, updates
+POST /api/projects/{id}/tasks create task in project
+PATCH /api/projects/tasks/{id} update task (complete, reprioritize, move, etc.)
+POST /api/projects/chat       chat control-center (Ollama-backed)
+GET  /api/intents/            list detected intents + their planning status
+POST /api/intents/run-now     trigger the intent-planning sweep immediately
+POST /api/daily-review/generate  generate today's review on demand (same engine as the 21:00 job)
 ```
 
 ---
@@ -371,19 +384,19 @@ lattice/           ← root
   lattice/         ← Python backend
     api/           # FastAPI route handlers
     config/        # settings.py, prompts.py
-    engines/       # brain_dump, rag, graph, wiki, scheduler, gamification, crm, journal...
+    engines/       # brain_dump, rag, graph, wiki, scheduler, intent_planner, crm, journal...
     llm/           # Ollama router, embeddings, context loader
     storage/       # SQLAlchemy models, database init
-    tests/         # 61 tests
+    tests/         # 69 tests
     main.py        # FastAPI app entry point
     requirements.txt
     .env           # your local config (gitignored)
     .env.example   # template
   frontend/        ← React UI
     src/
-      pages/       # Dashboard, Ask, Tasks, Wiki, Graph, Journal, CRM, XP, Settings, Files
-      components/  # Sidebar, StatusBar, Toast, Card
-      stores/      # Zustand state (tasks, app)
+      pages/       # Dashboard, Ask, Tasks, Projects, ProjectDetail, Wiki, Graph, Journal, CRM, Settings, Files
+      components/  # Sidebar, StatusBar, Toast, Card, projects/ (kanban, list, status, chat)
+      stores/      # Zustand state (tasks, projects, app)
       lib/         # api.js (fetch wrappers), utils.js
     index.html
     tailwind.config.js

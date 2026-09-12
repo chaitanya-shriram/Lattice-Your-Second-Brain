@@ -10,14 +10,19 @@ __pycache__/
 venv/
 env/
 
+# PyInstaller output (large binaries — download from GitHub Releases instead)
+dist/
+build/
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
 
-# Local config (has your paths)
+# Local config (has your paths + secrets)
 lattice/.env
+.env
 
-# Data (personal)
+# Data (personal — not committed, lives in vault_path)
 vault/
 vault-files/
 incoming/
@@ -32,3 +37,14 @@ lattice/data/*.db-wal
 .DS_Store
 Thumbs.db
 desktop.ini
+$RECYCLE.BIN/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs / temp
+*.log
+*.tmp
+*.bak

@@ -1,0 +1,163 @@
+name: Build Lattice
+
+on:
+  push:
+    tags: ["v*"]           # builds on version tags: git tag v2.0.0 && git push --tags
+  workflow_dispatch:        # manual trigger from GitHub Actions UI
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows-x64
+            archive_cmd: "Compress-Archive -Path dist\\Lattice\\* -DestinationPath dist\\artifact.zip"
+            archive_shell: powershell
+            artifact: Lattice-windows-x64.zip
+
+          - os: macos-13       # Intel (x86_64)
+            name: macos-x64
+            archive_cmd: "cd dist && zip -r artifact.zip Lattice/ Lattice.app/ 2>/dev/null || zip -r artifact.zip Lattice/"
+            archive_shell: bash
+            artifact: Lattice-macos-x64.zip
+
+          - os: macos-14       # Apple Silicon (arm64)
+            name: macos-arm64
+            archive_cmd: "cd dist && zip -r artifact.zip Lattice/ Lattice.app/ 2>/dev/null || zip -r artifact.zip Lattice/"
+            archive_shell: bash
+            artifact: Lattice-macos-arm64.zip
+
+          - os: ubuntu-22.04
+            name: linux-x64
+            archive_cmd: "cd dist && tar czf artifact.tar.gz Lattice/"
+            archive_shell: bash
+            artifact: Lattice-linux-x64.tar.gz
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.name }})
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── Python ──────────────────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # ── Node ────────────────────────────────────────────────────────────────
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # ── Linux system deps (GTK for tray) ────────────────────────────────────
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            libgirepository1.0-dev \
+            gir1.2-appindicator3-0.1 \
+            python3-gi \
+            libcairo2-dev \
+            pkg-config \
+            python3-dev \
+            zenity
+
+      # ── Python deps ─────────────────────────────────────────────────────────
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r lattice/requirements.txt
+          pip install pyinstaller
+
+      # ── Frontend ────────────────────────────────────────────────────────────
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      # ── PyInstaller ─────────────────────────────────────────────────────────
+      - name: Build with PyInstaller
+        run: pyinstaller lattice.spec --clean --noconfirm
+
+      # ── Archive (Windows) ───────────────────────────────────────────────────
+      - name: Create archive
+        run: ${{ matrix.archive_cmd }}
+        shell: ${{ matrix.archive_shell }}
+
+      # ── Rename artifact ─────────────────────────────────────────────────────
+      - name: Rename archive (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: Move-Item dist\artifact.zip dist\${{ matrix.artifact }}
+
+      - name: Rename archive (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          EXT="${{ matrix.artifact }}"
+          EXT="${EXT##*.}"
+          if [ "$EXT" = "gz" ]; then
+            mv dist/artifact.tar.gz dist/${{ matrix.artifact }}
+          else
+            mv dist/artifact.zip dist/${{ matrix.artifact }}
+          fi
+
+      # ── Upload ──────────────────────────────────────────────────────────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          retention-days: 30
+
+  # ── Create GitHub Release when tag pushed ───────────────────────────────────
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/**
+          generate_release_notes: true
+          body: |
+            ## Lattice ${{ github.ref_name }}
+
+            ### Downloads
+            | Platform | File |
+            |----------|------|
+            | Windows x64 | `Lattice-windows-x64.zip` |
+            | macOS Intel | `Lattice-macos-x64.zip` |
+            | macOS Apple Silicon | `Lattice-macos-arm64.zip` |
+            | Linux x64 | `Lattice-linux-x64.tar.gz` |
+
+            ### First-run setup
+            1. Extract the archive for your platform
+            2. Run the `Lattice` binary (or `Lattice.exe` on Windows)
+            3. Browser opens automatically → complete the 1-minute setup wizard
+            4. Enable **Auto-start on login** from the system tray menu
+
+            ### Requirements
+            - [Ollama](https://ollama.ai) running locally (for local LLM)
+            - Optional: Anthropic API key for Claude fallback
