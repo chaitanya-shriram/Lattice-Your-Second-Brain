@@ -64,8 +64,14 @@ def get_wiki_page(page_id: str, db: Session = Depends(get_db_dependency)):
     content = None
     try:
         from pathlib import Path
-        p = Path(page.vault_path)
-        if p.exists():
+        from config.settings import get_settings
+
+        vault = get_settings().vault_path
+        # vault_path on the record is stored relative to the vault root (see
+        # VaultWriter.write_wiki_page) — join it back on, and stay inside the
+        # vault even if the stored value is ever malformed.
+        p = (vault / page.vault_path).resolve()
+        if p.exists() and p.is_relative_to(vault.resolve()):
             content = p.read_text(encoding="utf-8")
     except Exception:
         pass

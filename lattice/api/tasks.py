@@ -40,6 +40,10 @@ class TaskUpdate(BaseModel):
 
 def _task_to_dict(t: Task) -> dict:
     import json
+    try:
+        tags = json.loads(t.tags) if t.tags else []
+    except (json.JSONDecodeError, ValueError):
+        tags = []
     return {
         "id": t.id,
         "title": t.title,
@@ -53,7 +57,7 @@ def _task_to_dict(t: Task) -> dict:
         "scheduled_date": t.scheduled_date,
         "estimated_minutes": t.estimated_minutes,
         "actual_minutes": t.actual_minutes,
-        "tags": json.loads(t.tags) if t.tags else [],
+        "tags": tags,
         "domain": t.domain,
         "source": t.source,
         "vault_note_path": t.vault_note_path,

@@ -63,6 +63,39 @@ def test_journal_get_entries():
     print(f"  Journal entries: {len(entries)}")
 
 
+def test_daily_review_generate():
+    from engines.daily_review import DailyReviewEngine
+
+    class MockLLM:
+        async def complete(self, prompt, system="", **kwargs):
+            return "### Summary\n- Made progress on information theory.\n\n### Tomorrow\n- Keep going."
+        async def complete_json(self, *args, **kwargs):
+            return {}
+        async def embed(self, text):
+            return [0.1] * 768
+
+    engine = DailyReviewEngine()
+    engine.llm = MockLLM()
+
+    result = asyncio.run(engine.generate())
+    assert result["review_text"].startswith("### Summary")
+    assert "tasks_completed" in result
+    assert "tasks_pending" in result
+
+    from config.settings import get_settings
+    note = get_settings().vault_path / result["daily_note"]
+    assert "## Daily Review" in note.read_text(encoding="utf-8")
+
+
+def test_daily_review_api():
+    from fastapi.testclient import TestClient
+    from main import app
+    client = TestClient(app)
+    r = client.post("/api/daily-review/generate")
+    assert r.status_code == 200
+    assert "review_text" in r.json()
+
+
 def test_crm_upsert_contact():
     from engines.crm_engine import CRMEngine
     engine = CRMEngine()

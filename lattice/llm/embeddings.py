@@ -35,9 +35,26 @@ async def embed_and_store(
     source_id: str,
     db: Session | None = None,
 ) -> list[str]:
+    """Embed text chunks and store in DB. Fully async — no event loop gymnastics."""
     llm = get_llm()
     chunks = _chunk_text(text)
-    ids = []
+
+    # Embed all chunks asynchronously first
+    embedded: list[tuple[int, str, list[float]]] = []
+    for i, chunk in enumerate(chunks):
+        try:
+            vec = await llm.embed(chunk)
+            embedded.append((i, chunk, vec))
+        except Exception as e:
+            log.warning(f"Embed chunk {i} failed for {source_type}/{source_id}: {e}")
+
+    if not embedded:
+        log.warning(f"All chunks failed to embed for {source_type}/{source_id}")
+        return []
+
+    # Write to DB in a single transaction
+    ids: list[str] = []
+    now = datetime.utcnow().isoformat()
 
     def _store(session: Session):
         session.query(Embedding).filter(
@@ -45,23 +62,15 @@ async def embed_and_store(
             Embedding.source_id == source_id,
         ).delete()
 
-        for i, chunk in enumerate(chunks):
-            vec = None
-            try:
-                import asyncio
-                vec = asyncio.get_event_loop().run_until_complete(llm.embed(chunk))
-            except Exception as e:
-                log.warning(f"Embed chunk {i} failed: {e}")
-                continue
-
+        for idx, chunk, vec in embedded:
             emb = Embedding(
                 id=str(uuid.uuid4()),
                 source_type=source_type,
                 source_id=source_id,
-                chunk_index=i,
+                chunk_index=idx,
                 text_chunk=chunk,
                 embedding=json.dumps(vec),
-                created_at=datetime.utcnow().isoformat(),
+                created_at=now,
             )
             session.add(emb)
             ids.append(emb.id)
@@ -72,7 +81,7 @@ async def embed_and_store(
         with get_db() as session:
             _store(session)
 
-    log.debug(f"Embedded {source_type}/{source_id}: {len(chunks)} chunks")
+    log.debug(f"Embedded {source_type}/{source_id}: {len(embedded)}/{len(chunks)} chunks stored")
     return ids
 
 
@@ -91,26 +100,50 @@ def search_embeddings(
     source_type: str | None = None,
     min_similarity: float = 0.0,
 ) -> list[dict]:
+    # ponytail: still an O(n) full-table scan (every embedding loaded into
+    # memory each query) — fine for a personal vault's chunk count, but the
+    # ceiling is a real vector index (sqlite-vec, faiss) once this is
+    # thousands+ of chunks. The numpy batch matmul below is just a constant-
+    # factor speedup over the old per-row Python loop, not a Big-O fix.
     q = db.query(Embedding)
     if source_type:
         q = q.filter(Embedding.source_type == source_type)
     rows = q.all()
+    if not rows:
+        return []
 
-    scored = []
+    vecs, valid_rows = [], []
     for row in rows:
         try:
-            vec = json.loads(row.embedding)
-            sim = cosine_similarity(query_vec, vec)
-            if sim >= min_similarity:
-                scored.append({
-                    "source_type": row.source_type,
-                    "source_id": row.source_id,
-                    "chunk_index": row.chunk_index,
-                    "text_chunk": row.text_chunk,
-                    "similarity": sim,
-                })
+            vecs.append(json.loads(row.embedding))
+            valid_rows.append(row)
         except Exception:
             continue
+    if not vecs:
+        return []
 
-    scored.sort(key=lambda x: x["similarity"], reverse=True)
-    return scored[:top_k]
+    query = np.array(query_vec)
+    mat = np.array(vecs)
+    query_norm = np.linalg.norm(query)
+    row_norms = np.linalg.norm(mat, axis=1)
+    denom = row_norms * query_norm
+    sims = np.divide(mat @ query, denom, out=np.zeros(len(mat)), where=denom != 0)
+
+    order = np.argsort(-sims)
+    scored = []
+    for i in order:
+        sim = float(sims[i])
+        if sim < min_similarity:
+            break
+        row = valid_rows[i]
+        scored.append({
+            "source_type": row.source_type,
+            "source_id": row.source_id,
+            "chunk_index": row.chunk_index,
+            "text_chunk": row.text_chunk,
+            "similarity": sim,
+        })
+        if len(scored) >= top_k:
+            break
+
+    return scored

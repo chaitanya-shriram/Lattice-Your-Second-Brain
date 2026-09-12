@@ -166,7 +166,9 @@ class WikiCompiler:
         if index.exists():
             context_parts.append("=== Wiki Index ===\n" + index.read_text(encoding="utf-8")[:500])
 
-        for f in wiki_files[:3]:
+        import random
+        sample = random.sample(wiki_files, min(3, len(wiki_files)))
+        for f in sample:
             if f.name != "_index.md":
                 content = f.read_text(encoding="utf-8")[:800]
                 context_parts.append(f"=== {f.stem} ===\n{content}")

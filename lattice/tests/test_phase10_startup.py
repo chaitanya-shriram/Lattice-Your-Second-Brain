@@ -44,7 +44,6 @@ def test_full_app_import():
     assert any("/wiki" in r for r in routes)
     assert any("/graph" in r for r in routes)
     assert any("/skills" in r for r in routes)
-    assert any("/xp" in r for r in routes)
     assert any("/crm" in r for r in routes)
     assert any("/journal" in r for r in routes)
     print(f"  Total routes: {len(routes)}")
@@ -65,8 +64,7 @@ def test_all_engines_importable():
     from engines.self_improve import get_self_improve_engine
     from engines.journal_engine import get_journal_engine
     from engines.crm_engine import get_crm_engine
-    from engines.gamification import get_gamification_engine
-    print("  All 14 engines imported OK")
+    print("  All 13 engines imported OK")
 
 
 def test_smoke_api():
@@ -84,11 +82,8 @@ def test_smoke_api():
         ("GET", "/api/wiki/"),
         ("GET", "/api/graph/"),
         ("GET", "/api/skills/"),
-        ("GET", "/api/actions/"),
         ("GET", "/api/crm/"),
         ("GET", "/api/journal/entries"),
-        ("GET", "/api/xp/stats"),
-        ("GET", "/api/xp/achievements"),
         ("GET", "/api/vault-health/reports"),
         ("GET", "/"),
         ("GET", "/tasks"),

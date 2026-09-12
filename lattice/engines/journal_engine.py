@@ -3,7 +3,6 @@ Journal Engine: conversational daily journal with LLM reflection prompts.
 Entries are stored in vault/01-daily/{date}.md and a Journal table (via BrainDump.source='journal').
 """
 import uuid
-from pathlib import Path
 from datetime import datetime, date
 
 from config.settings import get_settings
@@ -41,9 +40,7 @@ class JournalEngine:
 
         # Append entry to daily note
         entry_md = f"\n\n### Journal Entry — {datetime.now().strftime('%H:%M')}\n{text}\n"
-        daily_full = self.settings.vault_path / daily_path
-        with open(str(daily_full), "a", encoding="utf-8") as f:
-            f.write(entry_md)
+        self.vault.append_to_note(daily_path, entry_md)
 
         # Get reflection prompt from LLM
         reflection = ""

@@ -7,7 +7,6 @@ from config.settings import get_settings
 def setup_logger():
     settings = get_settings()
     logs_path = settings.logs_path
-    logs_path.mkdir(parents=True, exist_ok=True)
 
     logger.remove()
 
@@ -18,22 +17,23 @@ def setup_logger():
         colorize=True,
     )
 
-    logger.add(
-        logs_path / "lattice.log",
-        rotation="10 MB",
-        retention="30 days",
-        level="DEBUG",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} - {message}",
-    )
-
-    logger.add(
-        logs_path / "llm.log",
-        rotation="10 MB",
-        retention="30 days",
-        level="DEBUG",
-        filter=lambda r: "llm" in r["name"],
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} - {message}",
-    )
+    if logs_path is not None:
+        logs_path.mkdir(parents=True, exist_ok=True)
+        logger.add(
+            logs_path / "lattice.log",
+            rotation="10 MB",
+            retention="30 days",
+            level="DEBUG",
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} - {message}",
+        )
+        logger.add(
+            logs_path / "llm.log",
+            rotation="10 MB",
+            retention="30 days",
+            level="DEBUG",
+            filter=lambda r: "llm" in r["name"],
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} - {message}",
+        )
 
     return logger
 

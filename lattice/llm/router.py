@@ -1,4 +1,6 @@
+import asyncio
 import json
+import threading
 import time
 from typing import Any
 from utils.logger import get_logger
@@ -6,23 +8,34 @@ from config.settings import get_settings
 
 log = get_logger("llm.router")
 
+LLM_TIMEOUT = 120.0   # seconds — LLM calls can be slow for large prompts
+EMBED_TIMEOUT = 30.0  # seconds — embeddings are fast
+
 
 class LLMRouter:
     def __init__(self):
         self.settings = get_settings()
         self._ollama = None
         self._claude = None
+        self._lock = threading.Lock()
 
     def _get_ollama(self):
         if self._ollama is None:
-            import ollama
-            self._ollama = ollama
+            with self._lock:
+                if self._ollama is None:
+                    import ollama
+                    self._ollama = ollama
         return self._ollama
 
     def _get_claude(self):
         if self._claude is None:
-            import anthropic
-            self._claude = anthropic.Anthropic(api_key=self.settings.anthropic_api_key)
+            with self._lock:
+                if self._claude is None:
+                    import anthropic
+                    self._claude = anthropic.Anthropic(
+                        api_key=self.settings.anthropic_api_key,
+                        timeout=LLM_TIMEOUT,
+                    )
         return self._claude
 
     async def complete(
@@ -60,17 +73,26 @@ class LLMRouter:
 
         t0 = time.time()
         try:
-            resp = ollama.chat(**kwargs)
+            resp = await asyncio.wait_for(
+                asyncio.to_thread(ollama.chat, **kwargs),
+                timeout=LLM_TIMEOUT,
+            )
             content = resp["message"]["content"]
             log.debug(f"Ollama {model} | {len(prompt)} prompt chars | {time.time()-t0:.1f}s")
             return content
+        except asyncio.TimeoutError:
+            log.error(f"Ollama {model} timed out after {LLM_TIMEOUT}s")
+            raise TimeoutError(f"LLM call timed out after {LLM_TIMEOUT}s")
         except Exception as e:
             log.error(f"Ollama error: {e}")
             if model != self.settings.ollama_primary_model:
                 raise
-            log.warning("Falling back to qwen2.5:7b")
-            kwargs["model"] = "qwen2.5:7b"
-            resp = ollama.chat(**kwargs)
+            log.warning(f"Falling back to {self.settings.ollama_fallback_model}")
+            kwargs["model"] = self.settings.ollama_fallback_model
+            resp = await asyncio.wait_for(
+                asyncio.to_thread(ollama.chat, **kwargs),
+                timeout=LLM_TIMEOUT,
+            )
             return resp["message"]["content"]
 
     async def _claude_complete(self, prompt: str, system: str) -> str:
@@ -84,7 +106,10 @@ class LLMRouter:
         if system:
             kwargs["system"] = system
 
-        resp = client.messages.create(**kwargs)
+        resp = await asyncio.wait_for(
+            asyncio.to_thread(client.messages.create, **kwargs),
+            timeout=LLM_TIMEOUT,
+        )
         content = resp.content[0].text
         log.debug(f"Claude | {len(prompt)} prompt chars | {time.time()-t0:.1f}s")
         return content
@@ -96,15 +121,26 @@ class LLMRouter:
         model: str | None = None,
         retries: int = 2,
     ) -> dict:
-        """Complete and parse JSON. Retry on invalid JSON."""
+        """Complete and parse JSON. Retry on invalid JSON or a non-object result.
+
+        Every caller (brain_dump, intent_planner, projects chat, wiki_compiler,
+        file_ingest) does `result.get(...)` on the return value with no type
+        check of its own — a model that returns valid JSON that isn't an object
+        (a bare array, string, or number) used to pass straight through and
+        crash deep inside whichever caller called it first. Validating the
+        shape here, once, protects all of them.
+        """
         for attempt in range(retries):
             raw = await self.complete(prompt, system, schema={}, model=model)
             try:
-                return json.loads(raw)
-            except json.JSONDecodeError:
+                parsed = json.loads(raw)
+                if not isinstance(parsed, dict):
+                    raise ValueError(f"expected a JSON object, got {type(parsed).__name__}")
+                return parsed
+            except (json.JSONDecodeError, ValueError) as e:
                 if attempt < retries - 1:
-                    log.warning(f"Invalid JSON (attempt {attempt+1}), retrying")
-                    prompt = f"Your previous response was not valid JSON. Return ONLY valid JSON.\n\nOriginal task:\n{prompt}"
+                    log.warning(f"Invalid JSON (attempt {attempt+1}): {e}, retrying")
+                    prompt = f"Your previous response was not a valid JSON object. Return ONLY a valid JSON object.\n\nOriginal task:\n{prompt}"
                 else:
                     log.error(f"JSON parse failed after {retries} attempts. Raw: {raw[:200]}")
                     raise ValueError(f"LLM returned invalid JSON: {raw[:200]}")
@@ -113,11 +149,18 @@ class LLMRouter:
         """Always uses Ollama nomic-embed-text, regardless of backend."""
         ollama = self._get_ollama()
         try:
-            resp = ollama.embeddings(
-                model=self.settings.ollama_embed_model,
-                prompt=text,
+            resp = await asyncio.wait_for(
+                asyncio.to_thread(
+                    ollama.embeddings,
+                    model=self.settings.ollama_embed_model,
+                    prompt=text,
+                ),
+                timeout=EMBED_TIMEOUT,
             )
             return resp["embedding"]
+        except asyncio.TimeoutError:
+            log.error(f"Embedding timed out after {EMBED_TIMEOUT}s")
+            raise
         except Exception as e:
             log.error(f"Embedding error: {e}")
             raise

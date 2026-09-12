@@ -16,6 +16,8 @@ from utils.logger import get_logger
 
 log = get_logger("engines.scheduler")
 
+JOB_TIMEOUT = 300.0  # 5 min max per scheduled job
+
 
 class LatticeScheduler:
     def __init__(self):
@@ -40,10 +42,6 @@ class LatticeScheduler:
     def _configure_jobs(self):
         s = self.settings
 
-        # [1] Check-in every N minutes during work hours
-        work_start_h = int(s.work_start.split(":")[0])
-        work_end_h = int(s.work_end.split(":")[0])
-
         self._scheduler.add_job(
             self._checkin_job,
             IntervalTrigger(minutes=s.checkin_interval_minutes),
@@ -51,7 +49,6 @@ class LatticeScheduler:
             replace_existing=True,
         )
 
-        # [2] Daily review
         review_h, review_m = s.daily_review_time.split(":")
         self._scheduler.add_job(
             self._daily_review_job,
@@ -60,7 +57,6 @@ class LatticeScheduler:
             replace_existing=True,
         )
 
-        # [3] Nightly maintenance
         maint_h, maint_m = s.nightly_maintenance_time.split(":")
         self._scheduler.add_job(
             self._nightly_maintenance_job,
@@ -69,7 +65,6 @@ class LatticeScheduler:
             replace_existing=True,
         )
 
-        # [4] Auto git commit every hour
         self._scheduler.add_job(
             self._git_commit_job,
             IntervalTrigger(hours=1),
@@ -77,15 +72,24 @@ class LatticeScheduler:
             replace_existing=True,
         )
 
+        self._scheduler.add_job(
+            self._intent_planning_job,
+            IntervalTrigger(minutes=s.intent_planning_interval_minutes),
+            id="intent_planning",
+            replace_existing=True,
+        )
+
         log.info(f"Jobs configured: checkin/{s.checkin_interval_minutes}min, "
                  f"daily-review/{s.daily_review_time}, "
-                 f"maintenance/{s.nightly_maintenance_time}")
+                 f"maintenance/{s.nightly_maintenance_time}, "
+                 f"intent-planning/{s.intent_planning_interval_minutes}min")
 
     async def _checkin_job(self):
-        """Nudge notification: what are you working on?"""
         now = datetime.now()
+        if not (self.settings.work_start <= now.strftime("%H:%M") <= self.settings.work_end):
+            log.debug(f"Check-in skipped at {now.strftime('%H:%M')} — outside work hours")
+            return
         log.info(f"Check-in ping at {now.strftime('%H:%M')}")
-
         try:
             _send_notification(
                 "Lattice Check-in",
@@ -95,47 +99,81 @@ class LatticeScheduler:
             log.warning(f"Notification failed: {e}")
 
     async def _daily_review_job(self):
-        """Generate daily review with LLM synthesis."""
         log.info("Daily review job starting")
         try:
             from engines.daily_review import get_daily_review_engine
-            result = await get_daily_review_engine().generate()
+            result = await asyncio.wait_for(
+                get_daily_review_engine().generate(),
+                timeout=JOB_TIMEOUT,
+            )
             _send_notification(
                 "Lattice Daily Review",
                 f"Daily review ready: {result['tasks_completed']} tasks done today.",
             )
+            from engines.telegram_bot import send_telegram
+            await send_telegram(f"Daily Review — {result['date']}\n\n{result['review_text']}")
             log.info(f"Daily review complete: {result}")
+        except asyncio.TimeoutError:
+            log.error(f"Daily review timed out after {JOB_TIMEOUT}s")
         except Exception as e:
             log.error(f"Daily review job failed: {e}")
 
     async def _nightly_maintenance_job(self):
-        """Run graph rebuild + git commit + wiki health check."""
         log.info("Nightly maintenance starting")
         try:
-            # 1. Graph rebuild
             from engines.graph_builder import get_graph_builder
-            result = get_graph_builder().build_all()
+
+            async def _rebuild():
+                return await asyncio.to_thread(get_graph_builder().build_all)
+
+            result = await asyncio.wait_for(_rebuild(), timeout=JOB_TIMEOUT)
             log.info(f"Nightly graph rebuild: {result}")
 
-            # 2. Git auto-commit
-            await self._git_commit_job()
+            if self.settings.self_improve_enabled:
+                from engines.self_improve import get_self_improve_engine
 
+                async def _health_check():
+                    return await asyncio.to_thread(get_self_improve_engine().run_full_check)
+
+                health = await asyncio.wait_for(_health_check(), timeout=JOB_TIMEOUT)
+                log.info(f"Vault health check: {health}")
+
+            await self._git_commit_job()
             log.info("Nightly maintenance complete")
+        except asyncio.TimeoutError:
+            log.error(f"Nightly maintenance timed out after {JOB_TIMEOUT}s")
         except Exception as e:
             log.error(f"Nightly maintenance failed: {e}")
 
+    async def _intent_planning_job(self):
+        log.info("Intent planning sweep starting")
+        try:
+            from engines.intent_planner import get_intent_planner
+            result = await asyncio.wait_for(
+                get_intent_planner().plan_pending(),
+                timeout=JOB_TIMEOUT,
+            )
+            if result["planned"]:
+                log.info(f"Intent planning: {result['planned']} plan(s) created")
+                _send_notification(
+                    "Lattice",
+                    f"{result['planned']} new plan(s) ready — check Projects.",
+                )
+        except asyncio.TimeoutError:
+            log.error(f"Intent planning timed out after {JOB_TIMEOUT}s")
+        except Exception as e:
+            log.error(f"Intent planning failed: {e}")
+
     async def _git_commit_job(self):
-        """Auto-commit vault changes to git."""
         try:
             from engines.git_engine import get_git_engine
-            result = get_git_engine().auto_commit()
+            result = await asyncio.to_thread(get_git_engine().auto_commit)
             if not result.get("skipped"):
                 log.info(f"Auto git commit: {result.get('sha')} — {result.get('message')}")
         except Exception as e:
             log.warning(f"Git auto-commit failed: {e}")
 
     def get_jobs(self) -> list[dict]:
-        """Return list of scheduled jobs for inspection."""
         jobs = []
         for job in self._scheduler.get_jobs():
             next_run = job.next_run_time
@@ -148,7 +186,6 @@ class LatticeScheduler:
 
 
 def _send_notification(title: str, message: str):
-    """Send Windows desktop notification via plyer."""
     try:
         from plyer import notification
         notification.notify(

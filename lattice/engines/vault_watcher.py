@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from config.settings import get_settings
 from utils.logger import get_logger
 from utils.file_utils import is_supported
 
@@ -28,7 +29,7 @@ class IncomingHandler(FileSystemEventHandler):
             log.info(f"Auto-ingested: {path.name} → {result.get('canonical_filename')}")
 
             # Queue wiki compilation
-            if result.get("raw_path"):
+            if result.get("raw_path") and get_settings().wiki_compilation_enabled:
                 from engines.wiki_compiler import get_wiki_compiler
                 compiler = get_wiki_compiler()
                 await compiler.compile_source(Path(result["raw_path"]))

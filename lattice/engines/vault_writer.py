@@ -2,6 +2,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any
 import json
+import os
+import threading
 
 from config.settings import get_settings
 from utils.markdown_utils import build_frontmatter, parse_frontmatter
@@ -14,16 +16,40 @@ class VaultWriter:
     def __init__(self):
         self.settings = get_settings()
         self.vault = self.settings.vault_path
+        # ponytail: one process-wide lock, not per-file. API requests, the
+        # scheduler, and the vault watcher run on different threads and can
+        # race on the same note (read-modify-write). At personal-vault scale
+        # a single lock costs nothing measurable; move to per-path locks if
+        # this ever becomes a bottleneck.
+        self._lock = threading.Lock()
+
+    def _resolve(self, rel_path: str) -> Path:
+        """Join rel_path onto the vault root and refuse anything that escapes it.
+
+        rel_path segments (folder/topic/filename) are built from LLM-classified
+        text (brain dump, wiki compiler, etc.), not typed directly by a request
+        handler — but that text isn't trusted input either, so a stray "../" or
+        an absolute path slipping through must not be able to write outside the
+        vault. This check makes that structural rather than relying on every
+        call site to sanitize its own segments.
+        """
+        full = (self.vault / rel_path).resolve()
+        vault_resolved = self.vault.resolve()
+        if not full.is_relative_to(vault_resolved):
+            raise ValueError(f"Refusing to access path outside vault: {rel_path}")
+        return full
 
     def _write(self, rel_path: str, content: str) -> Path:
-        full = self.vault / rel_path
+        full = self._resolve(rel_path)
         full.parent.mkdir(parents=True, exist_ok=True)
-        full.write_text(content, encoding="utf-8")
+        tmp = full.with_name(full.name + ".tmp")
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, full)  # atomic on same filesystem — no half-written note on a crash
         log.debug(f"Wrote: {rel_path}")
         return full
 
     def _read(self, rel_path: str) -> str | None:
-        full = self.vault / rel_path
+        full = self._resolve(rel_path)
         if full.exists():
             return full.read_text(encoding="utf-8")
         return None
@@ -66,8 +92,6 @@ class VaultWriter:
         topic = question.get("topic", "general").replace("/", "-").replace(" ", "-")
         rel = f"03-questions/{topic}.md"
 
-        existing = self._read(rel) or f"---\ntype: questions\ntopic: {topic}\n---\n\n# Questions — {topic.title()}\n\n"
-
         entry = f"\n## Q: {question['text']}\n\n"
         entry += f"> [!question]\n"
         entry += f"> added: {datetime.utcnow().date().isoformat()}\n"
@@ -76,8 +100,10 @@ class VaultWriter:
         entry += f"> status: unsolved\n\n"
         entry += "**My current understanding:**\n\n\n"
 
-        content = existing.rstrip() + "\n" + entry
-        self._write(rel, content)
+        with self._lock:
+            existing = self._read(rel) or f"---\ntype: questions\ntopic: {topic}\n---\n\n# Questions — {topic.title()}\n\n"
+            content = existing.rstrip() + "\n" + entry
+            self._write(rel, content)
         return rel
 
     # ── Ideas ──────────────────────────────────────────────────────────
@@ -87,11 +113,11 @@ class VaultWriter:
         topic = idea.get("topic", "general").replace("/", "-").replace(" ", "-")
         rel = f"04-ideas/{topic}.md"
 
-        existing = self._read(rel) or f"---\ntype: ideas\ntopic: {topic}\n---\n\n# Ideas — {topic.title()}\n\n"
-
         entry = f"\n### {datetime.utcnow().date().isoformat()}\n{idea['text']}\n"
-        content = existing.rstrip() + "\n" + entry
-        self._write(rel, content)
+        with self._lock:
+            existing = self._read(rel) or f"---\ntype: ideas\ntopic: {topic}\n---\n\n# Ideas — {topic.title()}\n\n"
+            content = existing.rstrip() + "\n" + entry
+            self._write(rel, content)
         return rel
 
     # ── Fleeting ───────────────────────────────────────────────────────
@@ -100,22 +126,62 @@ class VaultWriter:
         today = datetime.utcnow().date().isoformat()
         rel = f"10-fleeting/{today}.md"
 
-        existing = self._read(rel) or f"---\ntype: fleeting\ndate: {today}\n---\n\n# Fleeting — {today}\n\n"
         entry = f"- {item['text']}\n"
-        content = existing.rstrip() + "\n" + entry
-        self._write(rel, content)
+        with self._lock:
+            existing = self._read(rel) or f"---\ntype: fleeting\ndate: {today}\n---\n\n# Fleeting — {today}\n\n"
+            content = existing.rstrip() + "\n" + entry
+            self._write(rel, content)
         return rel
 
     # ── References / Reading list ──────────────────────────────────────
 
     def append_reading_list(self, ref: dict) -> str:
         rel = "09-bibliography/reading-list.md"
-        existing = self._read(rel) or "---\ntype: reading-list\n---\n\n# Reading List\n\n"
         action = ref.get("action", "read")
         author = f" — {ref['author']}" if ref.get("author") else ""
         entry = f"- [ ] [{ref['title']}]{author} `{ref.get('type','other')}` `{action}`\n"
-        content = existing.rstrip() + "\n" + entry
-        self._write(rel, content)
+        with self._lock:
+            existing = self._read(rel) or "---\ntype: reading-list\n---\n\n# Reading List\n\n"
+            content = existing.rstrip() + "\n" + entry
+            self._write(rel, content)
+        return rel
+
+    # ── Intent plans (auto-planned commitments) ──────────────────────────
+
+    def write_intent_plan(self, plan: dict) -> str:
+        """Write an auto-generated project plan to 08-projects/{slug}.md."""
+        title = plan.get("title", "Untitled Plan")
+        rel = f"08-projects/{self._slugify(title)}.md"
+
+        meta = {
+            "type": "project-plan",
+            "title": title,
+            "project_id": plan.get("project_id"),
+            "auto_generated": True,
+            "source_intent": plan.get("raw_text", ""),
+            "created_at": datetime.utcnow().date().isoformat(),
+        }
+
+        body = f"# {title}\n\n"
+        body += f"> Auto-planned from: \"{plan.get('raw_text', '')}\"\n\n"
+        if plan.get("description"):
+            body += f"{plan['description']}\n\n"
+
+        body += "## Checklist\n\n"
+        for t in plan.get("checklist", []):
+            body += f"- [ ] {t.get('name', '')}"
+            if t.get("section"):
+                body += f" _({t['section']})_"
+            body += "\n"
+        body += "\n"
+
+        if plan.get("notes"):
+            body += f"## Notes\n\n{plan['notes']}\n\n"
+
+        if plan.get("project_id") is not None:
+            body += f"Linked project: #{plan['project_id']} — see the Projects tab.\n"
+
+        self._write(rel, build_frontmatter(meta) + body)
         return rel
 
     # ── Wiki pages ─────────────────────────────────────────────────────
@@ -138,35 +204,37 @@ class VaultWriter:
             "compiled_at": datetime.utcnow().isoformat(),
         }
 
-        existing = self._read(rel)
-        if existing:
-            existing_meta, _ = parse_frontmatter(existing)
-            meta["version"] = existing_meta.get("version", 1) + 1
+        with self._lock:
+            existing = self._read(rel)
+            if existing:
+                existing_meta, _ = parse_frontmatter(existing)
+                meta["version"] = existing_meta.get("version", 1) + 1
 
-        content = build_frontmatter(meta) + page.get("content", f"# {page.get('title', filename)}\n\n")
-        self._write(rel, content)
+            content = build_frontmatter(meta) + page.get("content", f"# {page.get('title', filename)}\n\n")
+            self._write(rel, content)
         return rel
 
     def update_wiki_page(self, path: str, additions: str, contradictions: list[str] | None = None) -> str:
         """Append additions to existing wiki page."""
         rel = path.replace("\\", "/")
-        existing = self._read(rel)
-        if not existing:
-            log.warning(f"Wiki page not found for update: {rel}")
-            return rel
+        with self._lock:
+            existing = self._read(rel)
+            if not existing:
+                log.warning(f"Wiki page not found for update: {rel}")
+                return rel
 
-        meta, body = parse_frontmatter(existing)
-        meta["version"] = meta.get("version", 1) + 1
-        if contradictions:
-            meta["has_contradictions"] = True
+            meta, body = parse_frontmatter(existing)
+            meta["version"] = meta.get("version", 1) + 1
+            if contradictions:
+                meta["has_contradictions"] = True
 
-        new_body = body.rstrip() + "\n\n" + additions.strip() + "\n"
-        if contradictions:
-            new_body += "\n\n> [!warning] Potential contradictions\n"
-            for c in contradictions:
-                new_body += f"> - {c}\n"
+            new_body = body.rstrip() + "\n\n" + additions.strip() + "\n"
+            if contradictions:
+                new_body += "\n\n> [!warning] Potential contradictions\n"
+                for c in contradictions:
+                    new_body += f"> - {c}\n"
 
-        self._write(rel, build_frontmatter(meta) + new_body)
+            self._write(rel, build_frontmatter(meta) + new_body)
         return rel
 
     # ── Daily note ─────────────────────────────────────────────────────
@@ -174,21 +242,32 @@ class VaultWriter:
     def write_daily_note(self, date: str | None = None) -> str:
         date = date or datetime.utcnow().date().isoformat()
         rel = f"01-daily/{date}.md"
-        if self._read(rel):
-            return rel  # already exists
+        with self._lock:
+            if self._read(rel):
+                return rel  # already exists
 
-        meta = {
-            "type": "daily",
-            "date": date,
-            "mood": None,
-            "energy": None,
-            "focus_time_hours": 0,
-            "tasks_planned": 0,
-            "tasks_completed": 0,
-        }
-        body = f"# Daily Note — {date}\n\n## Today's Focus\n\n\n## Notes\n\n\n## End of Day\n\n"
-        self._write(rel, build_frontmatter(meta) + body)
+            meta = {
+                "type": "daily",
+                "date": date,
+                "mood": None,
+                "energy": None,
+                "focus_time_hours": 0,
+                "tasks_planned": 0,
+                "tasks_completed": 0,
+            }
+            body = f"# Daily Note — {date}\n\n## Today's Focus\n\n\n## Notes\n\n\n## End of Day\n\n"
+            self._write(rel, build_frontmatter(meta) + body)
         return rel
+
+    def append_to_note(self, rel_path: str, text: str) -> str:
+        """Append raw text to an existing note (e.g. journal entries, daily review
+        sections) — locked + atomic like every other writer method, so concurrent
+        appends to the same file (journal + review can both hit the daily note)
+        don't race each other."""
+        with self._lock:
+            existing = self._read(rel_path) or ""
+            self._write(rel_path, existing + text)
+        return rel_path
 
     # ── Book / Paper notes ─────────────────────────────────────────────
 
@@ -249,7 +328,6 @@ class VaultWriter:
 
     def append_bibliography(self, metadata: dict, note_path: str) -> str:
         rel = "09-bibliography/bibliography.md"
-        existing = self._read(rel) or "---\ntype: bibliography\n---\n\n# Bibliography\n\n## Books\n\n## Papers\n\n"
 
         doc_type = metadata.get("document_type", "unknown")
         authors = ", ".join(metadata.get("authors", []))
@@ -268,8 +346,10 @@ class VaultWriter:
         entry += f"Status: unread | {note_link}\n"
 
         section = "## Books" if "book" in doc_type else "## Papers"
-        content = existing.replace(section, section + entry)
-        self._write(rel, content)
+        with self._lock:
+            existing = self._read(rel) or "---\ntype: bibliography\n---\n\n# Bibliography\n\n## Books\n\n## Papers\n\n"
+            content = existing.replace(section, section + entry)
+            self._write(rel, content)
         return rel
 
     # ── Helpers ────────────────────────────────────────────────────────

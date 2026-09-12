@@ -162,25 +162,6 @@ class FileIngestEngine:
             "compilation_queued": True,
         }
 
-    async def ingest_from_incoming(self) -> list[dict]:
-        """Process all files in the incoming/ watch folder."""
-        results = []
-        incoming = self.settings.incoming_path
-        for f in incoming.iterdir():
-            if f.is_file() and is_supported(f):
-                try:
-                    result = await self.ingest(f)
-                    results.append(result)
-                    # Move to processed
-                    processed = incoming / "processed"
-                    processed.mkdir(exist_ok=True)
-                    f.rename(processed / f.name)
-                except Exception as e:
-                    log.error(f"Failed to ingest {f.name}: {e}")
-                    results.append({"error": str(e), "filename": f.name})
-        return results
-
-
 def _sanitize_filename(name: str) -> str:
     import re
     name = re.sub(r'[<>:"/\\|?*]', '', name)

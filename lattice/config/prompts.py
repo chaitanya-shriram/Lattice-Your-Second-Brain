@@ -42,11 +42,48 @@ Return ONLY this JSON schema (no other text):
   ],
   "fleeting": [
     {{"text": "short reminder or errand"}}
+  ],
+  "intents": [
+    {{
+      "title": "short project-style title (max 60 chars)",
+      "text": "the original commitment statement, verbatim",
+      "topic": "probability|information-theory|finance|coding|admin|personal|other"
+    }}
   ]
 }}
 
+An "intent" is a stated COMMITMENT to a multi-step undertaking — e.g. "I'm going to build a
+trading bot", "I'm planning to write my thesis proposal this month", "gonna learn category
+theory". It is broader than a single "task": it implies a project worth planning out with its
+own steps and resources. Do NOT classify simple one-off actions ("email my advisor", "buy
+milk") as intents — those are tasks or fleeting items. Only extract a statement as an intent
+if it clearly commits to something that needs a plan.
+
 Brain dump:
 {raw_text}
+"""
+
+INTENT_PLAN_SYSTEM = """
+You are Lattice's planning engine. Given a personal commitment/intent statement, draft a
+concrete execution plan a self-directed person could follow.
+Return ONLY valid JSON. No preamble. No markdown fences. No explanation.
+"""
+
+INTENT_PLAN_USER = """
+The user committed to this: "{text}"
+Working title: {title}
+
+Draft a plan to accomplish this. Return ONLY this JSON schema:
+{{
+  "description": "10-25 word summary of what this project is",
+  "sections": ["2-5 phase names, e.g. Research, Setup, Build, Ship"],
+  "tasks": [
+    {{"name": "concrete step (max 80 chars)", "section": "must exactly match one of the sections above", "priority": "Low|Medium|High|Urgent", "due_date": "YYYY-MM-DD or null"}}
+  ],
+  "notes": "resources, links, prerequisites, or context worth remembering — markdown, 1-3 short paragraphs or a bullet list"
+}}
+
+Produce 5-15 concrete, specific tasks spread across the sections. No generic filler steps.
 """
 
 FILE_METADATA_SYSTEM = """

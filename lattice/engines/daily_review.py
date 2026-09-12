@@ -3,7 +3,6 @@ Daily review generator: LLM synthesizes today's activity into a structured revie
 Writes into vault/01-daily/{date}.md. Called by scheduler at DAILY_REVIEW_TIME.
 """
 from datetime import datetime, date
-from pathlib import Path
 
 from config.settings import get_settings
 from config.prompts import DAILY_REVIEW_SYSTEM, DAILY_REVIEW_USER
@@ -51,18 +50,17 @@ class DailyReviewEngine:
             review_text = self._fallback_review(activity, date_str)
 
         # Write review into daily note
-        full_path = self.settings.vault_path / daily_path
         timestamp = datetime.now().strftime("%H:%M")
         review_section = f"\n\n---\n\n## Daily Review — {timestamp}\n\n{review_text}\n"
-
-        with open(str(full_path), "a", encoding="utf-8") as f:
-            f.write(review_section)
+        self.vault.append_to_note(daily_path, review_section)
 
         log.info(f"Daily review written to {daily_path}")
         return {
             "date": date_str,
             "daily_note": daily_path,
+            "review_text": review_text,
             "tasks_completed": activity["tasks_completed"],
+            "tasks_pending": activity["tasks_pending"],
             "brain_dumps": activity["brain_dumps"],
             "wiki_pages_compiled": activity["wiki_pages_new"],
             "review_length": len(review_text),

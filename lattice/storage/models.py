@@ -198,18 +198,6 @@ class Checkin(Base):
     task = relationship("Task", back_populates="checkins")
 
 
-class ActionLog(Base):
-    __tablename__ = "action_log"
-
-    id = Column(String, primary_key=True)
-    action_type = Column(String, nullable=False)
-    params_json = Column(Text, nullable=False)
-    reverse_params_json = Column(Text)
-    executed_at = Column(String, nullable=False)
-    undone_at = Column(String)
-    status = Column(String, default="done")       # done|undone|failed
-
-
 class HealthReport(Base):
     __tablename__ = "health_reports"
 
@@ -232,61 +220,101 @@ class GitCommit(Base):
     created_at = Column(String, nullable=False)
 
 
-class GamificationStats(Base):
-    __tablename__ = "gamification_stats"
-
-    id = Column(String, primary_key=True, default="singleton")
-    total_xp = Column(Integer, default=0)
-    current_level = Column(Integer, default=0)
-    capture_streak = Column(Integer, default=0)
-    study_streak = Column(Integer, default=0)
-    question_streak = Column(Integer, default=0)
-    task_streak = Column(Integer, default=0)
-    streak_shield_available = Column(Integer, default=0)
-    best_capture_streak = Column(Integer, default=0)
-    best_study_streak = Column(Integer, default=0)
-    best_question_streak = Column(Integer, default=0)
-    best_task_streak = Column(Integer, default=0)
-    total_brain_dumps = Column(Integer, default=0)
-    total_items_captured = Column(Integer, default=0)
-    total_tasks_created = Column(Integer, default=0)
-    total_tasks_completed = Column(Integer, default=0)
-    total_questions_filed = Column(Integer, default=0)
-    total_questions_solved = Column(Integer, default=0)
-    total_files_ingested = Column(Integer, default=0)
-    total_wiki_pages_compiled = Column(Integer, default=0)
-    total_journal_entries = Column(Integer, default=0)
-    total_focus_minutes = Column(Integer, default=0)
-    last_capture_date = Column(String)
-    last_study_date = Column(String)
-    last_question_date = Column(String)
-    last_task_date = Column(String)
-    updated_at = Column(String, nullable=False)
-
-
-class Achievement(Base):
-    __tablename__ = "achievements"
-
-    id = Column(String, primary_key=True)
-    badge_id = Column(String, nullable=False, unique=True)
-    badge_name = Column(String, nullable=False)
-    unlocked_at = Column(String, nullable=False)
-    xp_awarded = Column(Integer, default=0)
-
-
-class XPLog(Base):
-    __tablename__ = "xp_log"
-
-    id = Column(String, primary_key=True)
-    action = Column(String, nullable=False)
-    xp_earned = Column(Integer, nullable=False)
-    description = Column(Text)
-    earned_at = Column(String, nullable=False)
-
-
 class UserPreference(Base):
     __tablename__ = "user_preferences"
 
     key = Column(String, primary_key=True)
     value = Column(Text, nullable=False)
     updated_at = Column(String, nullable=False)
+
+
+# ── Project manager (Asana-style) ────────────────────────────────────────
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    color = Column(String, nullable=False, default="#796EFF")
+    position = Column(Float, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    collaborators = Column(Text, nullable=False, default="")   # comma-separated
+    is_inbox = Column(Boolean, nullable=False, default=False)
+    created_at = Column(String, nullable=False)
+
+    # passive_deletes=True: let the DB-level ON DELETE CASCADE FK (see
+    # ProjectSection/ProjectTask/ProjectUpdate.project_id) do the actual
+    # cleanup instead of the ORM loading children and re-deleting them itself.
+    sections = relationship("ProjectSection", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
+    tasks = relationship("ProjectTask", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
+    updates = relationship("ProjectUpdate", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
+
+
+class ProjectSection(Base):
+    __tablename__ = "project_sections"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String, nullable=False)
+    position = Column(Float, nullable=False)
+
+    project = relationship("Project", back_populates="sections")
+
+
+class ProjectTask(Base):
+    __tablename__ = "project_tasks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    section_id = Column(Integer, ForeignKey("project_sections.id", ondelete="CASCADE"))
+    parent_id = Column(Integer, ForeignKey("project_tasks.id", ondelete="CASCADE"))
+    name = Column(String, nullable=False)
+    notes = Column(Text, nullable=False, default="")
+    due_date = Column(String)
+    completed = Column(Boolean, nullable=False, default=False)
+    position = Column(Float, nullable=False)
+    is_milestone = Column(Boolean, nullable=False, default=False)
+    priority = Column(String)                     # Low|Medium|High|Urgent
+    effort = Column(Integer)
+    tags = Column(Text, nullable=False, default="")  # comma-separated
+    created_at = Column(String, nullable=False)
+
+    project = relationship("Project", back_populates="tasks")
+
+
+class TaskDependency(Base):
+    __tablename__ = "task_dependencies"
+
+    task_id = Column(Integer, ForeignKey("project_tasks.id", ondelete="CASCADE"), primary_key=True)
+    depends_on_id = Column(Integer, ForeignKey("project_tasks.id", ondelete="CASCADE"), primary_key=True)
+
+
+class Intent(Base):
+    """A stated commitment ('I'm going to build X') detected in a brain dump.
+    Picked up by the scheduled intent-planning job, which drafts a plan and
+    turns it into a Project + vault note."""
+    __tablename__ = "intents"
+
+    id = Column(String, primary_key=True)
+    title = Column(String, nullable=False)
+    raw_text = Column(Text, nullable=False)
+    topic = Column(String)
+    brain_dump_id = Column(String)
+    status = Column(String, nullable=False, default="pending")  # pending|planned|failed
+    project_id = Column(Integer, ForeignKey("projects.id"))
+    vault_note_path = Column(String)
+    error = Column(Text)
+    created_at = Column(String, nullable=False)
+    planned_at = Column(String)
+
+
+class ProjectUpdate(Base):
+    __tablename__ = "project_updates"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    status = Column(String, nullable=False)        # on_track|at_risk|off_track|complete
+    body = Column(Text, nullable=False, default="")
+    created_at = Column(String, nullable=False)
+
+    project = relationship("Project", back_populates="updates")

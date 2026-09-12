@@ -20,17 +20,15 @@ class RAGEngine:
         self.settings = get_settings()
         self.llm = get_llm()
 
-    async def query(self, question: str, top_k: int = 5, use_graph: bool = True) -> dict:
+    async def retrieve_context(self, question: str, top_k: int = 5, use_graph: bool = True) -> dict:
         """
-        Full RAG pipeline:
+        Retrieval only, no LLM synthesis:
         1. Embed question
         2. Search embedding store for top-k chunks
         3. Optionally BFS-expand via graph
         4. Load wiki context for matched concepts
-        5. LLM synthesis
+        Returns the assembled context block plus the bits needed for metadata.
         """
-        log.info(f"RAG query: {question[:80]}")
-
         # [1] Embed query
         try:
             query_vec = await self.llm.embed(question)
@@ -40,7 +38,6 @@ class RAGEngine:
 
         # [2] Search embeddings + wiki
         embedding_chunks = []
-        wiki_contexts = []
 
         if query_vec:
             with get_db() as db:
@@ -76,11 +73,23 @@ class RAGEngine:
 
         context = "\n\n---\n\n".join(context_parts) or "No relevant context found in vault."
 
-        # [6] LLM synthesis
+        return {
+            "context": context,
+            "embedding_chunks": embedding_chunks,
+            "wiki_contexts": wiki_contexts,
+            "graph_contexts": graph_contexts,
+        }
+
+    async def query(self, question: str, top_k: int = 5, use_graph: bool = True) -> dict:
+        """Full RAG pipeline: retrieve context, then LLM synthesis over it."""
+        log.info(f"RAG query: {question[:80]}")
+
+        retrieved = await self.retrieve_context(question, top_k=top_k, use_graph=use_graph)
+
         try:
             prompt = RAG_SYNTHESIS_USER.format(
                 question=question,
-                context=context,
+                context=retrieved["context"],
             )
             answer = await self.llm.complete(prompt, system=RAG_SYNTHESIS_SYSTEM)
         except Exception as e:
@@ -90,9 +99,9 @@ class RAGEngine:
         return {
             "question": question,
             "answer": answer,
-            "sources_used": len(embedding_chunks) + len(wiki_contexts),
-            "wiki_pages_used": [w["concept"] for w in wiki_contexts],
-            "graph_expanded": len(graph_contexts),
+            "sources_used": len(retrieved["embedding_chunks"]) + len(retrieved["wiki_contexts"]),
+            "wiki_pages_used": [w["concept"] for w in retrieved["wiki_contexts"]],
+            "graph_expanded": len(retrieved["graph_contexts"]),
             "timestamp": datetime.utcnow().isoformat(),
         }
 

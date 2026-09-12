@@ -5,7 +5,7 @@ from typing import Generator
 from pathlib import Path
 
 from config.settings import get_settings
-from storage.models import Base, GamificationStats
+from storage.models import Base, Project
 from utils.logger import get_logger
 
 log = get_logger("storage.database")
@@ -26,6 +26,7 @@ def _get_engine():
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")  # wait 5s for a lock instead of failing immediately
         cursor.close()
 
     return engine
@@ -33,6 +34,15 @@ def _get_engine():
 
 _engine = None
 _SessionLocal = None
+
+
+def reset_engine():
+    """Discard cached engine/session — call after settings change (e.g. setup save)."""
+    global _engine, _SessionLocal
+    if _engine is not None:
+        _engine.dispose()
+    _engine = None
+    _SessionLocal = None
 
 
 def get_engine():
@@ -60,10 +70,17 @@ def _seed_defaults():
     from datetime import datetime
     SessionLocal = get_session_factory()
     with SessionLocal() as session:
-        existing = session.get(GamificationStats, "singleton")
-        if not existing:
-            stats = GamificationStats(id="singleton", updated_at=datetime.utcnow().isoformat())
-            session.add(stats)
+        inbox = session.query(Project).filter(Project.is_inbox.is_(True)).first()
+        if not inbox:
+            inbox = Project(
+                name="Personal",
+                color="#37c5ab",
+                position=0,
+                description="Standalone tasks and errands that do not belong to any specific project.",
+                is_inbox=True,
+                created_at=datetime.utcnow().isoformat(),
+            )
+            session.add(inbox)
             session.commit()
 
 

@@ -77,12 +77,6 @@ def test_wiki_search(client):
     assert isinstance(r.json(), list)
 
 
-def test_actions_list(client):
-    r = client.get("/api/actions/")
-    assert r.status_code == 200
-    assert isinstance(r.json(), list)
-
-
 def test_dump_history(client):
     r = client.get("/api/dump/history")
     assert r.status_code == 200

@@ -58,6 +58,46 @@ def test_graph_neighbors():
     print(f"  Entropy neighbors: {result['neighbors']}")
 
 
+def test_search_embeddings_ranks_and_filters():
+    """Vectorized search_embeddings: top-k ordering, min_similarity cutoff, source_type filter."""
+    import json
+    import uuid
+    from datetime import datetime
+    from llm.embeddings import search_embeddings
+    from storage.database import get_db
+    from storage.models import Embedding
+
+    now = datetime.utcnow().isoformat()
+    rows = [
+        ("close", [1.0, 0.0, 0.0], "wiki"),
+        ("far", [0.0, 1.0, 0.0], "wiki"),
+        ("opposite", [-1.0, 0.0, 0.0], "wiki"),
+        ("other_type", [1.0, 0.0, 0.0], "task"),
+    ]
+    ids = []
+    with get_db() as db:
+        for source_id, vec, source_type in rows:
+            e = Embedding(
+                id=str(uuid.uuid4()), source_type=source_type, source_id=f"test-{source_id}",
+                chunk_index=0, text_chunk=source_id, embedding=json.dumps(vec), created_at=now,
+            )
+            db.add(e)
+            ids.append(e.id)
+
+    try:
+        with get_db() as db:
+            results = search_embeddings([1.0, 0.0, 0.0], db, top_k=2, source_type="wiki")
+        assert [r["source_id"] for r in results] == ["test-close", "test-far"]  # ranked, opposite excluded by top_k
+        assert results[0]["similarity"] > results[1]["similarity"]
+
+        with get_db() as db:
+            results = search_embeddings([1.0, 0.0, 0.0], db, top_k=10, source_type="wiki", min_similarity=0.5)
+        assert [r["source_id"] for r in results] == ["test-close"]  # far (sim=0) and opposite (sim=-1) filtered out
+    finally:
+        with get_db() as db:
+            db.query(Embedding).filter(Embedding.id.in_(ids)).delete(synchronize_session=False)
+
+
 def test_rag_engine_imports():
     from engines.rag_engine import RAGEngine
     engine = RAGEngine()

@@ -133,15 +133,26 @@ class CRMEngine:
         context: str,
         note_path: str,
     ):
-        """Write or update contact vault note in 07-people/."""
+        """Write contact vault note in 07-people/ on first contact, or append
+        a dated interaction line to an existing note. Never regenerates the
+        whole file, so the user's own edits to Notes/etc. are preserved."""
         people_dir = self.settings.vault_path / "07-people"
         people_dir.mkdir(parents=True, exist_ok=True)
         full_path = self.settings.vault_path / note_path
 
-        if full_path.exists():
-            return  # Don't overwrite existing notes
-
         now = datetime.utcnow().date().isoformat()
+
+        if full_path.exists():
+            if not context:
+                return
+            existing = full_path.read_text(encoding="utf-8")
+            entry = f"- [{now}] {context}\n"
+            content = existing.rstrip() + "\n" + entry
+            tmp = full_path.with_name(full_path.name + ".tmp")
+            tmp.write_text(content, encoding="utf-8")
+            tmp.replace(full_path)
+            return
+
         content = f"""---
 name: {name}
 role: {role or ''}

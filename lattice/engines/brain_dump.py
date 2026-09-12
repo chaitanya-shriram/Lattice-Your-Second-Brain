@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from config.prompts import BRAIN_DUMP_SYSTEM, BRAIN_DUMP_USER
-from storage.models import Task, BrainDump
+from storage.models import Task, BrainDump, Intent
 from storage.database import get_db
 from engines.vault_writer import get_vault_writer
 from llm.router import get_llm
@@ -24,7 +24,7 @@ class BrainDumpEngine:
         prompt = BRAIN_DUMP_USER.format(raw_text=raw_text)
         try:
             result = await self.llm.complete_json(prompt, system=BRAIN_DUMP_SYSTEM)
-        except ValueError as e:
+        except Exception as e:
             log.error(f"Brain dump LLM failed: {e}")
             return {"error": str(e), "raw_text": raw_text}
 
@@ -33,6 +33,7 @@ class BrainDumpEngine:
         ideas_filed = []
         references_added = []
         fleeting_saved = []
+        intents_filed = []
 
         now = datetime.utcnow().isoformat()
         dump_id = str(uuid.uuid4())
@@ -108,10 +109,27 @@ class BrainDumpEngine:
                 except Exception as e:
                     log.warning(f"Fleeting write failed: {e}")
 
+            # Intents — commitments the scheduled planner will turn into a Project + vault plan
+            for item in result.get("intents", []):
+                if not item.get("title") or not item.get("text"):
+                    continue
+                intent = Intent(
+                    id=str(uuid.uuid4()),
+                    title=item["title"],
+                    raw_text=item["text"],
+                    topic=item.get("topic"),
+                    brain_dump_id=dump_id,
+                    status="pending",
+                    created_at=now,
+                )
+                db.add(intent)
+                intents_filed.append({"title": intent.title, "text": intent.raw_text, "topic": intent.topic})
+
             # Store dump record
             total_items = (
                 len(tasks_created) + len(questions_filed) +
-                len(ideas_filed) + len(references_added) + len(fleeting_saved)
+                len(ideas_filed) + len(references_added) + len(fleeting_saved) +
+                len(intents_filed)
             )
             dump_record = BrainDump(
                 id=dump_id,
@@ -133,6 +151,7 @@ class BrainDumpEngine:
             "ideas": ideas_filed,
             "references": references_added,
             "fleeting": fleeting_saved,
+            "intents": intents_filed,
         }
 
 
