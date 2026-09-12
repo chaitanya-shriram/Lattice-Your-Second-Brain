@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react'
-import { Plus, Check, Trash2, AlertCircle, Clock, MoreHorizontal } from 'lucide-react'
+import { Plus, Check, Trash2, Clock } from 'lucide-react'
 import { useTaskStore, BUCKETS } from '../stores/useTaskStore'
 import { useAppStore } from '../stores/useAppStore'
 import { cn, formatDate } from '../lib/utils'
@@ -65,7 +65,7 @@ function TaskCard({ task, onComplete, onDelete }) {
             {task.priority}
           </span>
           <button
-            onClick={() => onDelete(task.id)}
+            onClick={() => { if (confirm(`Delete task "${task.title}"?`)) onDelete(task.id) }}
             className="p-0.5 rounded hover:bg-red-900/30 text-dark-subtle hover:text-red-400 transition-colors"
           >
             <Trash2 size={10} />
@@ -191,7 +191,6 @@ function Column({ bucket, tasks, onCreate, onComplete, onDelete }) {
 export default function Tasks() {
   const { fetch, byBucket, create, complete, remove, loading } = useTaskStore()
   const { addToast } = useAppStore()
-  const [filter, setFilter] = useState('all')
   const buckets = byBucket()
 
   useEffect(() => {

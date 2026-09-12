@@ -39,13 +39,15 @@ export default function Journal() {
   const [entries, setEntries] = useState([])
   const [todaySummary, setTodaySummary] = useState(null)
   const [loadingToday, setLoadingToday] = useState(false)
+  const [loadError, setLoadError] = useState(null)
 
   const loadEntries = async () => {
     try {
       const data = await api.journalEntries(20)
       setEntries(data)
+      setLoadError(null)
     } catch (e) {
-      // silent
+      setLoadError(e.message)
     }
   }
 
@@ -151,7 +153,12 @@ export default function Journal() {
       {/* Entries list */}
       <div className="space-y-2">
         <p className="text-xs text-dark-subtle font-medium">Recent entries ({entries.length})</p>
-        {entries.length === 0 ? (
+        {loadError ? (
+          <div className="text-center py-6">
+            <p className="text-xs text-red-400">Couldn't load entries: {loadError}</p>
+            <button onClick={loadEntries} className="text-xs text-lattice-400 hover:text-lattice-300 mt-1">Retry</button>
+          </div>
+        ) : entries.length === 0 ? (
           <p className="text-xs text-dark-muted text-center py-6">No entries yet. Start writing.</p>
         ) : (
           entries.map((e, i) => <EntryCard key={i} entry={e} />)

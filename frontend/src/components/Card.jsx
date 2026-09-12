@@ -1,11 +1,10 @@
-﻿import { cn } from '../lib/utils'
+import { cn } from '../lib/utils'
 
-export function Card({ className, children, glow = false, ...props }) {
+export function Card({ className, children, ...props }) {
   return (
     <div
       className={cn(
-        'rounded-xl bg-dark-card border border-dark-border p-4',
-        glow && 'glow-lattice',
+        'rounded-lg bg-dark-card border border-dark-border/60 p-4',
         className
       )}
       {...props}
@@ -17,13 +16,15 @@ export function Card({ className, children, glow = false, ...props }) {
 
 export function CardHeader({ className, children }) {
   return (
-    <div className={cn('flex items-center justify-between mb-3', className)}>{children}</div>
+    <div className={cn('flex items-center justify-between mb-3', className)}>
+      {children}
+    </div>
   )
 }
 
 export function CardTitle({ className, children }) {
   return (
-    <h3 className={cn('text-sm font-semibold text-dark-text uppercase tracking-wider', className)}>
+    <h3 className={cn('text-2xs font-semibold text-dark-muted uppercase tracking-widest', className)}>
       {children}
     </h3>
   )

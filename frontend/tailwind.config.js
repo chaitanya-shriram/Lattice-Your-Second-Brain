@@ -5,38 +5,50 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Accent — indigo, used very sparingly
         lattice: {
-          50: '#f0f4ff',
-          100: '#dbe4ff',
-          200: '#bac8ff',
-          300: '#91a7ff',
-          400: '#748ffc',
-          500: '#5c7cfa',
-          600: '#4c6ef5',
-          700: '#4263eb',
-          800: '#3b5bdb',
-          900: '#364fc7',
+          50:  '#EEF2FF',
+          100: '#E0E7FF',
+          200: '#C7D2FE',
+          300: '#A5B4FC',
+          400: '#818CF8',
+          500: '#6366F1',
+          600: '#4F46E5',
+          700: '#4338CA',
+          800: '#3730A3',
+          900: '#1E1B4B',
         },
+        // Surface stack — zinc/near-black, no blue tint
         dark: {
-          bg: '#0f1117',
-          surface: '#1a1d27',
-          card: '#21263a',
-          border: '#2d3250',
-          muted: '#3d4466',
-          text: '#c9d1f5',
-          subtle: '#7480b5',
+          bg:      '#09090B',   // page background
+          surface: '#111113',   // sidebar, elevated panels
+          card:    '#18181B',   // cards
+          border:  '#27272A',   // borders
+          muted:   '#3F3F46',   // dividers, disabled
+          text:    '#F4F4F5',   // primary text (warm white, no blue)
+          subtle:  '#A1A1AA',   // secondary text
         },
       },
       fontFamily: {
-        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+      },
+      fontSize: {
+        '2xs': ['10px', { lineHeight: '14px' }],
       },
       animation: {
+        'fade-in':    'fadeIn 0.15s ease-out',
+        'slide-up':   'slideUp 0.2s ease-out',
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        'fade-in': 'fadeIn 0.2s ease-in-out',
+        'spin-slow':  'spin 2s linear infinite',
       },
       keyframes: {
         fadeIn: {
-          '0%': { opacity: '0', transform: 'translateY(-4px)' },
+          '0%':   { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        slideUp: {
+          '0%':   { opacity: '0', transform: 'translateY(6px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
       },

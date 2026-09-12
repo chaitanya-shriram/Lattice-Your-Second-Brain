@@ -1,13 +1,56 @@
 ﻿import { useEffect, useState } from 'react'
-import { BookOpen, Search, RefreshCw, ExternalLink, Tag, ChevronRight } from 'lucide-react'
-import { Card, CardHeader, CardTitle } from '../components/Card'
+import { BookOpen, Search, RefreshCw, Tag, ChevronRight, X } from 'lucide-react'
+import { Card } from '../components/Card'
 import { useAppStore } from '../stores/useAppStore'
 import { api } from '../lib/api'
-import { formatRelative, truncate } from '../lib/utils'
+import { formatRelative } from '../lib/utils'
 
-function WikiCard({ page }) {
+function WikiPageModal({ pageId, onClose }) {
+  const [page, setPage] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const { addToast } = useAppStore()
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    api.wikiPage(pageId)
+      .then((data) => { if (!cancelled) setPage(data) })
+      .catch(() => { if (!cancelled) { addToast?.('Failed to load wiki page', 'error'); onClose() } })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [pageId])
+
   return (
-    <div className="p-3 rounded-xl border border-dark-border hover:border-lattice-700/40
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-dark-surface border border-dark-border rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-dark-border shrink-0">
+          <h2 className="text-sm font-semibold text-dark-text">{page?.concept || 'Wiki page'}</h2>
+          <button onClick={onClose} className="text-dark-subtle hover:text-dark-text">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-4 overflow-y-auto">
+          {loading ? (
+            <p className="text-xs text-dark-subtle">Loading…</p>
+          ) : page?.content ? (
+            <pre className="text-xs text-dark-text whitespace-pre-wrap font-sans leading-relaxed">{page.content}</pre>
+          ) : (
+            <p className="text-xs text-dark-subtle">No content found — the note may have moved on disk.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function WikiCard({ page, onOpen }) {
+  return (
+    <div
+      onClick={() => onOpen(page.id)}
+      className="p-3 rounded-xl border border-dark-border hover:border-lattice-700/40
                     bg-dark-surface transition-colors cursor-pointer group">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
@@ -45,6 +88,7 @@ export default function Wiki() {
   const [pages, setPages] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [openPageId, setOpenPageId] = useState(null)
   const { addToast } = useAppStore()
 
   const load = async () => {
@@ -116,7 +160,7 @@ export default function Wiki() {
         </Card>
       ) : filtered ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {filtered.map((p) => <WikiCard key={p.id} page={p} />)}
+          {filtered.map((p) => <WikiCard key={p.id} page={p} onOpen={setOpenPageId} />)}
         </div>
       ) : (
         <div className="space-y-6">
@@ -128,12 +172,14 @@ export default function Wiki() {
                 <span className="text-[9px] text-dark-muted">({folderPages.length})</span>
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {folderPages.map((p) => <WikiCard key={p.id} page={p} />)}
+                {folderPages.map((p) => <WikiCard key={p.id} page={p} onOpen={setOpenPageId} />)}
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {openPageId && <WikiPageModal pageId={openPageId} onClose={() => setOpenPageId(null)} />}
     </div>
   )
 }

@@ -1,46 +1,108 @@
-﻿@tailwind base;
+@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  * {
-    @apply border-dark-border;
+  *, *::before, *::after {
+    box-sizing: border-box;
   }
 
   html {
-    @apply bg-dark-bg text-dark-text;
-    font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+    background-color: #09090B;
+    color: #F4F4F5;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
 
   body {
-    @apply bg-dark-bg min-h-screen;
-    -webkit-font-smoothing: antialiased;
+    background-color: #09090B;
+    min-height: 100vh;
   }
 
-  ::-webkit-scrollbar {
-    @apply w-1.5;
+  /* Scrollbar — ultra minimal */
+  ::-webkit-scrollbar        { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track  { background: transparent; }
+  ::-webkit-scrollbar-thumb  { background: #3F3F46; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: #52525B; }
+
+  /* Selection */
+  ::selection {
+    background-color: rgba(99, 102, 241, 0.25);
+    color: #F4F4F5;
   }
-  ::-webkit-scrollbar-track {
-    @apply bg-dark-bg;
+}
+
+@layer components {
+  /* Base input style — used across pages */
+  .input-base {
+    @apply w-full bg-dark-card border border-dark-border rounded-md px-3 py-2
+           text-sm text-dark-text placeholder:text-dark-subtle/50
+           focus:outline-none focus:ring-1 focus:ring-lattice-500/50 focus:border-lattice-500/50
+           transition-colors font-sans;
   }
-  ::-webkit-scrollbar-thumb {
-    @apply bg-dark-muted rounded-full;
+
+  /* Textarea */
+  .textarea-base {
+    @apply input-base resize-none;
   }
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-dark-subtle;
+
+  /* Primary button */
+  .btn-primary {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
+           bg-lattice-600 hover:bg-lattice-500 text-white
+           disabled:opacity-40 disabled:cursor-not-allowed transition-colors;
+  }
+
+  /* Ghost button */
+  .btn-ghost {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm
+           text-dark-subtle hover:text-dark-text hover:bg-dark-card
+           transition-colors;
+  }
+
+  /* Section label */
+  .section-label {
+    @apply text-2xs font-semibold text-dark-muted uppercase tracking-widest;
   }
 }
 
 @layer utilities {
-  .glass {
-    @apply bg-dark-card/60 backdrop-blur-sm border border-dark-border/50;
-  }
-
-  .glow-lattice {
-    box-shadow: 0 0 20px rgba(92, 124, 250, 0.15);
-  }
-
   .text-gradient {
-    @apply bg-gradient-to-r from-lattice-400 to-lattice-600 bg-clip-text text-transparent;
+    background: linear-gradient(135deg, #818CF8 0%, #6366F1 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glass {
+    background: rgba(24, 24, 27, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  /* Left accent border — used for active nav items */
+  .nav-active {
+    border-left: 2px solid #6366F1;
+    padding-left: calc(0.625rem - 2px);
+    color: #F4F4F5;
+    background: rgba(99, 102, 241, 0.06);
+  }
+
+  .nav-inactive {
+    border-left: 2px solid transparent;
+    padding-left: 0.625rem;
+    color: #71717A;
+  }
+
+  .nav-inactive:hover {
+    color: #A1A1AA;
+    background: rgba(255,255,255,0.03);
+  }
+
+  /* Subtle divider */
+  .divider {
+    @apply border-t border-dark-border/60;
   }
 }

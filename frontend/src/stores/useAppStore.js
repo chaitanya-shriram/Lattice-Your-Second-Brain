@@ -6,6 +6,7 @@ export const useAppStore = create((set) => ({
   dumpHistory: [],
   toasts: [],
   sidebarOpen: true,
+  mobileNavOpen: false,
 
   checkHealth: async () => {
     try {
@@ -26,10 +27,13 @@ export const useAppStore = create((set) => ({
   addToast: (message, type = 'info') => {
     const id = Date.now()
     set((s) => ({ toasts: [...s.toasts, { id, message, type }] }))
-    setTimeout(() => {
-      set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
-    }, 4000)
+  },
+
+  removeToast: (id) => {
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
   },
 
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  toggleMobileNav: () => set((s) => ({ mobileNavOpen: !s.mobileNavOpen })),
+  closeMobileNav: () => set({ mobileNavOpen: false }),
 }))

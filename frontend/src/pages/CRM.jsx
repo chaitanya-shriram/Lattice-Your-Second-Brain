@@ -159,13 +159,15 @@ export default function CRM() {
   const [contacts, setContacts] = useState([])
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [loadError, setLoadError] = useState(null)
 
   const loadContacts = async (q = '') => {
     try {
       const data = await api.crmList(q)
       setContacts(data)
+      setLoadError(null)
     } catch (e) {
-      // silent
+      setLoadError(e.message)
     }
   }
 
@@ -208,7 +210,14 @@ export default function CRM() {
       </div>
 
       {/* Grid */}
-      {contacts.length === 0 ? (
+      {loadError ? (
+        <div className="text-center py-12">
+          <p className="text-sm text-red-400">Couldn't load contacts: {loadError}</p>
+          <button onClick={() => loadContacts(search)} className="text-xs text-lattice-400 hover:text-lattice-300 mt-2">
+            Retry
+          </button>
+        </div>
+      ) : contacts.length === 0 ? (
         <div className="text-center py-12">
           <Users size={32} className="mx-auto text-dark-muted mb-2 opacity-30" />
           <p className="text-sm text-dark-subtle">No contacts yet.</p>

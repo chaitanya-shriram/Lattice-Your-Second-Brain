@@ -1,10 +1,11 @@
 ﻿import { useEffect, useState } from 'react'
 import { FileText, Upload, Search, BookOpen, FileCode, File } from 'lucide-react'
-import { Card, CardHeader, CardTitle } from '../components/Card'
+import { Card } from '../components/Card'
 import { useAppStore } from '../stores/useAppStore'
 import { api } from '../lib/api'
-import { formatDate, formatRelative, truncate } from '../lib/utils'
+import { formatRelative } from '../lib/utils'
 import { cn } from '../lib/utils'
+import { useFileUpload } from '../lib/hooks'
 
 const TYPE_ICONS = {
   book: BookOpen,
@@ -62,7 +63,6 @@ export default function Files() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [dragging, setDragging] = useState(false)
-  const [uploading, setUploading] = useState(false)
   const { addToast } = useAppStore()
 
   const load = async () => {
@@ -78,19 +78,7 @@ export default function Files() {
 
   useEffect(() => { load() }, [])
 
-  const handleUpload = async (fileList) => {
-    setUploading(true)
-    for (const file of Array.from(fileList)) {
-      try {
-        await api.fileUpload(file)
-        addToast(`Queued: ${file.name}`, 'success')
-      } catch (e) {
-        addToast(`Failed: ${file.name}`, 'error')
-      }
-    }
-    setUploading(false)
-    setTimeout(load, 1000)
-  }
+  const { uploading, upload: handleUpload } = useFileUpload(() => setTimeout(load, 1000))
 
   const filtered = files.filter((f) =>
     !search ||
