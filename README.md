@@ -1,8 +1,19 @@
 # Lattice — Your Second Brain
 
-> A local-first AI knowledge OS. Runs entirely on your machine. No cloud, no subscriptions, no data leaving your device.
+> A local-first, single-user personal knowledge management system. Dump unstructured notes in, get a self-organizing, queryable knowledge base out — brain-dump ingestion, LLM-compiled wiki, and RAG-based Q&A, all running against a locally-hosted model.
 
-Built for students and researchers who want a personal knowledge base that thinks with them.
+Built for students and researchers who want a personal knowledge base that thinks with them. Packaged as a Windows/macOS/Linux desktop app (system tray, no terminal needed) — 65/65 backend tests passing.
+
+---
+
+## Why a desktop app, not a cloud service
+
+This is a deliberate architectural choice, not a missing feature:
+
+- **Your notes are the input to the model.** Everything you write — journal entries, brain dumps, uploaded PDFs, contact notes — gets embedded and fed back into an LLM prompt on every query. Keeping that entire loop on one machine means nothing about you ever has to leave it.
+- **Ollama, not an API.** Lattice talks to a locally-running Ollama instance (`qwen2.5:14b` for generation, `nomic-embed-text` for embeddings) over `localhost:11434`. There's no API key, no rate limit, no per-token cost, and it works offline.
+- **SQLite + flat markdown vault, not a hosted database.** The vault is just files on disk (`vault/`) plus a local SQLite file — inspectable, git-versionable (Lattice auto-commits it hourly), and trivially portable.
+- **Single-machine by design.** There's no auth, multi-tenancy, or sync layer, because there's exactly one user and one machine. That's what keeps the whole thing simple enough to actually reason about — adding those would be solving a problem this project doesn't have.
 
 ---
 
@@ -59,8 +70,8 @@ ollama pull nomic-embed-text
 
 ```bash
 # 1. Clone
-git clone https://github.com/chaitanya-shriram/lattice.git
-cd lattice
+git clone https://github.com/chaitanya-shriram/Lattice-Your-Second-Brain.git
+cd Lattice-Your-Second-Brain
 
 # 2. Python dependencies
 cd lattice
@@ -357,23 +368,33 @@ cd lattice
 python -m pytest tests/ -v
 ```
 
-61 tests. All pass without Ollama running (LLM calls are mocked in tests).
+65/65 tests pass. All pass without Ollama running (LLM calls are mocked in tests).
 
 ---
 
-## Windows autostart
+## Building the packaged desktop executable
 
-Import `lattice_autostart.xml` into Task Scheduler to start Lattice on login:
-
-```powershell
-schtasks /create /xml lattice_autostart.xml /tn "Lattice"
-```
-
-Or run manually:
+Lattice ships as a self-contained desktop app via PyInstaller, with a system tray icon (`tray.py`) instead of a terminal window — the FastAPI server runs in a background thread, and "Open Lattice" opens it in your browser.
 
 ```powershell
-.\start_lattice.ps1
+# Windows
+.\build.ps1
 ```
+
+```bash
+# Linux / macOS
+chmod +x build.sh && ./build.sh
+```
+
+Each script: creates/reuses a Python venv, installs backend dependencies, builds the frontend (`frontend/dist`), then runs PyInstaller against `lattice.spec` (`--onedir`, no UPX). Output:
+
+- Windows → `dist\Lattice\Lattice.exe` (+ `dist\Lattice.zip` portable archive)
+- Linux → `dist/Lattice/Lattice`
+- macOS → `dist/Lattice.app`
+
+`.github/workflows/build.yml` runs the same build on Windows/macOS (Intel + Apple Silicon)/Linux via CI whenever a `v*` tag is pushed, and uploads each as a release artifact.
+
+Auto-start on login: import `lattice_autostart.xml` into Windows Task Scheduler (`schtasks /create /xml lattice_autostart.xml /tn "Lattice"`), or run `.\start_lattice.ps1` / `./start_lattice.sh` manually. macOS/Linux auto-start (LaunchAgent / `~/.config/autostart`) is handled by `tray.py` itself.
 
 ---
 
@@ -387,7 +408,7 @@ lattice/           ← root
     engines/       # brain_dump, rag, graph, wiki, scheduler, intent_planner, crm, journal...
     llm/           # Ollama router, embeddings, context loader
     storage/       # SQLAlchemy models, database init
-    tests/         # 69 tests
+    tests/         # 65 tests, all passing
     main.py        # FastAPI app entry point
     requirements.txt
     .env           # your local config (gitignored)

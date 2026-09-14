@@ -42,7 +42,11 @@ $RECYCLE.BIN/
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
+
+# Personal project-tracking notes (not part of the app)
+STATUS.md
 
 # Logs / temp
 *.log
